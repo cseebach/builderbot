@@ -11,6 +11,7 @@ from collections import namedtuple, defaultdict
 from PIL import Image, ImageDraw, ImageFont
 import yaml
 from dropbox.rest import ErrorResponse
+from PyPDF2 import PdfFileReader, PdfFileMerger
 
 title_size = 56
 rules_size = 40
@@ -34,12 +35,16 @@ class CardImage(object):
         self.graphics = graphics
 
     def set_background(self, name):
-        self.image = Image.open(str(self.art.get(name)))
-        self.image = self.image.convert("RGBA")
+        image = Image.open(str(self.art.get(name)))
+        self.image = image.convert("RGBA")
+        image.close()
 
     def add_panels(self):
         panels = Image.open(str(self.graphics.get("text_boxes.png")))
+        image = self.image
         self.image = Image.alpha_composite(self.image, panels)
+        panels.close()
+        image.close()
 
     def draw_bounded_text(self, drawer, text, placement, into, font):
         left_bound = placement[0]
@@ -77,8 +82,12 @@ class CardImage(object):
         drawer = ImageDraw.Draw(self.image)
         drawer.text(title_placement, title, (0,0,0), font=font)
 
-    def save(self, path):
-        self.image.save(str(path))
+    def save_and_close(self, path):
+        image = self.image.convert("RGB")
+        image.save(str(path), quality=90)
+        self.image.close()
+        image.close()
+
 
 remove_chars = "`~!@#$%^&*()-=+{}[]|\;:'<>,./?" + '"'
 def slugify(name):
@@ -98,7 +107,7 @@ class Card(object):
     def get_paths(self):
         slugified = slugify(self.name)
         art_name = slugified+".png"
-        product_name = "{:03}_{}.jpg".format(self.index, slugified)
+        product_name = "{:03}_{}.pdf".format(self.index, slugified)
 
         return art_name, product_name
 
@@ -242,7 +251,7 @@ class BuilderBot(object):
 
     def yield_cards(self, cache):
         logger.info("Looking for card files.")
-        for cards_path in cache.cards.filter(".yml"):
+        for cards_path in sorted(cache.cards.filter(".yml")):
             logger.info("One found at "+str(cards_path))
             cards_path = cache.cards.get(cards_path)
             with cards_path.open() as cards_yaml:
@@ -250,6 +259,7 @@ class BuilderBot(object):
                     yield card
 
     def build(self):
+        logger.info("---")
         logger.info("Starting a build on path: "+self.path)
         Path(self.path, "singles").mkdir(parents=True)
 
@@ -257,14 +267,37 @@ class BuilderBot(object):
         for index, card_data in enumerate(self.yield_cards(cache)):
             card = Card(card_data, index+1)
 
-            destination_path = Path(self.path, "singles", card.product_name)
+            dropbox_destination = self.path + "/singles/" + card.product_name
+            server_destination = Path(dropbox_destination.lstrip("/"))
+            if not server_destination.parent.exists():
+                server_destination.parent.mkdir(parents=True)
 
             card_image = CardImage(cache.art, cache.graphics)
             card_image.set_background(card.art_name)
             card_image.add_panels()
             card_image.add_rules(card.get_rules_text())
             card_image.add_title(card.name)
-            card_image.save(destination_path)
+            card_image.save_and_close(server_destination)
+
+            with server_destination.open("rb") as image_file:
+                self.dropbox.put_file(dropbox_destination, image_file)
+
+            dropbox_duplicate = self.path + "/duplicates/" + card.product_name
+            server_duplicate = Path(dropbox_duplicate.lstrip("/"))
+            if not server_duplicate.parent.exists():
+                server_duplicate.parent.mkdir(parents=True)
+
+            merger = PdfFileMerger()
+            for i in range(card.data["quantity"]):
+                merger.append(str(server_destination))
+            merger.write(str(server_duplicate))
+            merger.close()
+
+            with server_duplicate.open("rb") as image_file:
+                self.dropbox.put_file(dropbox_duplicate, image_file)
+
+
+
 
 def do_build(path, dropbox):
     bot = BuilderBot(path, dropbox)
