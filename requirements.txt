@@ -1,0 +1,8 @@
+Beaker==1.7.0
+bottle==0.12.8
+bottle-redis==0.2.3
+dropbox==2.2.0
+Pillow==2.8.2
+PyPDF2==1.24
+PyYAML==3.11
+redis==2.10.
