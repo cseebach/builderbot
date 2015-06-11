@@ -295,12 +295,12 @@ class BuilderBot(object):
 
         merger = PdfFileMerger()
         for i in range(card.data["quantity"]):
-            merger.append(str(server_destination))
-        merger.write(single)
+            merger.append(single)
+        merger.write(str(on_server))
         merger.close()
 
-        with server_duplicate.open("rb") as image_file:
-            self.dropbox.put_file(dropbox_duplicate, image_file)
+        with on_server.open("rb") as image_file:
+            self.dropbox.put_file(on_dropbox, image_file)
 
 
     def build(self):
