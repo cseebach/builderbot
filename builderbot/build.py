@@ -285,7 +285,7 @@ class BuilderBot(object):
         self.save_to_dropbox_and_server(card_image, on_dropbox)
 
     def save_duplicate_pdf(self, card, card_image):
-        on_dropbox = "{}/duplicates/{}".format(self.path, card.product_name)
+        on_dropbox = "{}/duplicates/{}.pdf".format(self.path, card.product_name)
         on_server = Path(on_dropbox.lstrip("/"))
         if not on_server.parent.exists():
             on_server.parent.mkdir(parents=True)
