@@ -269,7 +269,7 @@ class BuilderBot(object):
         return card_image
 
     def save_to_dropbox_and_server(self, card_image, dropbox_path):
-        on_server = Path(dropbox_destination.lstrip("/"))
+        on_server = Path(dropbox_path.lstrip("/"))
         if not on_server.parent.exists():
             on_server.parent.mkdir(parents=True)
         card_image.save(on_server)
@@ -317,6 +317,8 @@ class BuilderBot(object):
             self.save_jpeg(card, card_image)
             self.save_pdf(card, card_image)
             self.save_duplicate_pdf(card, card_image)
+
+            card_image.close()
 
 
 def do_build(path, dropbox):
