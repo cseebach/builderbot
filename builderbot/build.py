@@ -82,11 +82,13 @@ class CardImage(object):
         drawer = ImageDraw.Draw(self.image)
         drawer.text(title_placement, title, (0,0,0), font=font)
 
-    def save_and_close(self, path):
+    def save(self, path):
         image = self.image.convert("RGB")
         image.save(str(path), quality=90)
-        self.image.close()
         image.close()
+
+    def close(self):
+        self.image.close()
 
 
 remove_chars = "`~!@#$%^&*()-=+{}[]|\;:'<>,./?" + '"'
@@ -107,7 +109,7 @@ class Card(object):
     def get_paths(self):
         slugified = slugify(self.name)
         art_name = slugified+".png"
-        product_name = "{:03}_{}.pdf".format(self.index, slugified)
+        product_name = "{:03}_{}".format(self.index, slugified)
 
         return art_name, product_name
 
@@ -258,6 +260,49 @@ class BuilderBot(object):
                 for card in yaml.load_all(cards_yaml):
                     yield card
 
+    def make_image(self, card, cache):
+        card_image = CardImage(cache.art, cache.graphics)
+        card_image.set_background(card.art_name)
+        card_image.add_panels()
+        card_image.add_rules(card.get_rules_text())
+        card_image.add_title(card.name)
+        return card_image
+
+    def save_to_dropbox_and_server(card_image, dropbox_path):
+        on_server = Path(dropbox_destination.lstrip("/"))
+        if not on_server.parent.exists():
+            on_server.parent.mkdir(parents=True)
+        card_image.save(on_server)
+        with on_server.open("rb") as image_file:
+            self.dropbox.put_file(dropbox_path, image_file)
+
+    def save_jpeg(card, card_image):
+        on_dropbox = "{}/singles/{}.jpg".format(self.path, card.product_name)
+        self.save_to_dropbox_and_server(card_image, on_dropbox)
+
+    def save_pdf(card, card_image):
+        on_dropbox = "{}/singles/{}.pdf".format(self.path, card.product_name)
+        self.save_to_dropbox_and_server(card_image, on_dropbox)
+
+    def save_duplicate_pdf(card, card_image):
+        on_dropbox = "{}/duplicates/{}".format(self.path, card.product_name)
+        on_server = Path(on_dropbox.lstrip("/"))
+        if not on_server.parent.exists():
+            on_server.parent.mkdir(parents=True)
+
+        single = "{}/singles/{}.pdf".format(
+            self.path.lstrip("/"), card.product_name)
+
+        merger = PdfFileMerger()
+        for i in range(card.data["quantity"]):
+            merger.append(str(server_destination))
+        merger.write(single)
+        merger.close()
+
+        with server_duplicate.open("rb") as image_file:
+            self.dropbox.put_file(dropbox_duplicate, image_file)
+
+
     def build(self):
         logger.info("---")
         logger.info("Starting a build on path: "+self.path)
@@ -267,36 +312,11 @@ class BuilderBot(object):
         for index, card_data in enumerate(self.yield_cards(cache)):
             card = Card(card_data, index+1)
 
-            dropbox_destination = self.path + "/singles/" + card.product_name
-            server_destination = Path(dropbox_destination.lstrip("/"))
-            if not server_destination.parent.exists():
-                server_destination.parent.mkdir(parents=True)
+            card_image = self.make_image(card, cache)
 
-            card_image = CardImage(cache.art, cache.graphics)
-            card_image.set_background(card.art_name)
-            card_image.add_panels()
-            card_image.add_rules(card.get_rules_text())
-            card_image.add_title(card.name)
-            card_image.save_and_close(server_destination)
-
-            with server_destination.open("rb") as image_file:
-                self.dropbox.put_file(dropbox_destination, image_file)
-
-            dropbox_duplicate = self.path + "/duplicates/" + card.product_name
-            server_duplicate = Path(dropbox_duplicate.lstrip("/"))
-            if not server_duplicate.parent.exists():
-                server_duplicate.parent.mkdir(parents=True)
-
-            merger = PdfFileMerger()
-            for i in range(card.data["quantity"]):
-                merger.append(str(server_destination))
-            merger.write(str(server_duplicate))
-            merger.close()
-
-            with server_duplicate.open("rb") as image_file:
-                self.dropbox.put_file(dropbox_duplicate, image_file)
-
-
+            self.save_jpeg(card, card_image)
+            self.save_pdf(card, card_image)
+            self.save_duplicate_pdf(card, card_image)
 
 
 def do_build(path, dropbox):
